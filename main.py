@@ -93,6 +93,10 @@ def get_soap_prompt(diarized_transcript):
     return f"""Tugas Anda adalah bertindak sebagai asisten medis AI.
 Berdasarkan dialog berikut, buat ringkasan medis dalam format S.O.A.P.
 Gunakan format teks biasa (plain text). JANGAN gunakan Markdown (`**`).
+PASTIKAN UNTUK SETIAP BAGIAN (SUBJECTIVE, OBJECTIVE, ASSESSMENT, DAN PLAN)
+terdiri dari poin poin yang dimulai dengan -, jangan dibuat menjadi kalimat panjang.
+UNTUK DIAGNOSIS dan ICD-10 JUGA HARUS ADA. JIka belum bisa ditentukan,
+tuliskan kemungkinan-kemungkinannya. 
 
 Contoh Format:
 S.O.A.P. - CATATAN MEDIS
