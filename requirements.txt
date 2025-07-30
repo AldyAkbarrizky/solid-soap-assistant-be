@@ -1,0 +1,7 @@
+flask
+flask-cors
+requests
+openai-whisper
+google-genai
+assemblyai
+gunicorn
