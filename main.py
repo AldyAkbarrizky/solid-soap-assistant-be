@@ -1,5 +1,4 @@
-# main.py
-# Backend final: AssemblyAI SDK untuk transkripsi, Gemini untuk diarisasi & S.O.A.P.
+
 
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
@@ -7,28 +6,19 @@ import json
 import os
 import tempfile
 from google import genai
-import assemblyai as aai # Menggunakan AssemblyAI SDK
+import assemblyai as aai 
 
-# Inisialisasi aplikasi Flask
 app = Flask(__name__)
-# Mengizinkan request dari frontend React Anda (sesuaikan port jika berbeda)
-# Untuk produksi, Anda bisa mengganti '*' dengan URL frontend Anda
-CORS(app, resources={r"/*": {"origins": "*"}})
 
-# --- KONFIGURASI API ---
-
-# PENTING: Atur API Key Anda sebagai environment variable.
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Konfigurasi AssemblyAI SDK
 if ASSEMBLYAI_API_KEY:
     aai.settings.api_key = ASSEMBLYAI_API_KEY
     print("AssemblyAI API Key berhasil dikonfigurasi.")
 else:
     print("Peringatan: Environment variable ASSEMBLYAI_API_KEY tidak ditemukan.")
 
-# Konfigurasi Gemini
 try:
     gemini_client = genai.Client(api_key = GEMINI_API_KEY)
     gemini_model_name = "models/gemini-2.0-flash"
@@ -37,12 +27,8 @@ except Exception as e:
     print(f"Gagal mengkonfigurasi Gemini API: {e}")
     gemini_client = None
 
-# --- FUNGSI-FUNGSI AI ---
 
 def transcribe_with_assemblyai_sdk(audio_path):
-    """
-    Menggunakan AssemblyAI Python SDK untuk mendapatkan transkrip mentah.
-    """
     print("Memulai transkripsi dengan AssemblyAI SDK...")
     
     config = aai.TranscriptionConfig(language_code="id")
@@ -57,9 +43,6 @@ def transcribe_with_assemblyai_sdk(audio_path):
     return transcript.text or ""
 
 def call_gemini_for_diarization(raw_transcript):
-    """
-    Memanggil Gemini untuk memperbaiki typo dan melakukan diarisasi.
-    """
     print("Memulai perbaikan transkrip dan diarisasi dengan Gemini...")
     
     prompt = f"""Tugas Anda adalah sebagai editor transkrip medis profesional.
@@ -89,7 +72,6 @@ Setiap baris harus diawali dengan "Dokter: " atau "Pasien: ".
     return diarized_text
 
 def get_soap_prompt(diarized_transcript):
-    """Membuat prompt untuk S.O.A.P."""
     return f"""Tugas Anda adalah bertindak sebagai asisten medis AI.
 Berdasarkan dialog berikut, buat ringkasan medis dalam format S.O.A.P.
 Gunakan format teks biasa (plain text). JANGAN gunakan Markdown (`**`).
@@ -121,6 +103,29 @@ ICD-10 (Kode ICD-10):
 **Hasil S.O.A.P.:**
 """
 
+def get_diagnose_icd(soap_content):
+    return f"""Tugas Anda adalah bertindak sebagai asisten medis AI.
+Berdasarkan S.O.A.P yang diberikan berikut, buat ringkasan kemungkinan diagnosis dan iCD-10 nya.
+Gunakan format teks biasa (plain text). JANGAN gunakan Markdown (`**`).
+PASTIKAN UNTUK SETIAP BAGIAN (DIAGNOSIS DAN ICD-10)
+terdiri dari poin poin yang dimulai dengan -, jangan dibuat menjadi kalimat panjang.
+UNTUK DIAGNOSIS dan ICD-10 JUGA HARUS ADA. JIka belum bisa ditentukan,
+tuliskan kemungkinan-kemungkinannya. TAPI PASTIKAN KEMUNGKINAN YANG DITULISKAN MASUK AKAL ATAU SESUAI
+DENGAN S.O.A.P YANG DIBERIKAN
+
+Contoh Format Output (HARUS SEPERTI INI):
+DIAGNOSIS (Kesimpulan Diagnosa):
+- Infeksi Saluran Pernapasan Atas (ISPA)
+ICD-10 (Kode ICD-10):
+- J00
+
+---
+**S.O.A.P:**
+{soap_content}
+---
+**Hasil Diagnosis dan ICD-10:**
+"""
+
 def stream_gemini_response(prompt):
     """Generator untuk streaming respons dari Gemini."""
     print("Mulai streaming respons dari Gemini...")
@@ -135,10 +140,8 @@ def stream_gemini_response(prompt):
         yield f"Error streaming dari Gemini: {e}"
 
 
-# --- ENDPOINTS API ---
 @app.route('/process-audio', methods=['POST'])
 def process_audio():
-    """Endpoint untuk proses lengkap: AssemblyAI -> Diarisasi Gemini -> S.O.A.P. Gemini."""
     if gemini_client is None or not ASSEMBLYAI_API_KEY:
         return jsonify({"error": "API Key tidak berhasil dikonfigurasi di server."}), 500
 
@@ -182,14 +185,43 @@ def process_audio():
 
 @app.route('/regenerate-soap-stream', methods=['POST'])
 def regenerate_soap_stream():
-    """Endpoint untuk membuat ulang S.O.A.P. dengan STREAMING dari Gemini."""
+    if gemini_client is None or not ASSEMBLYAI_API_KEY:
+        return jsonify({"error": "API Key tidak berhasil dikonfigurasi di server."}), 500
+
     data = request.get_json()
     if not data or 'transcript' not in data:
         return jsonify({"error": "Transkrip tidak ditemukan dalam request"}), 400
     
     diarized_transcript = data['transcript']
-    soap_prompt = get_soap_prompt(diarized_transcript)
-    
-    return Response(stream_with_context(stream_gemini_response(soap_prompt)), mimetype='text/plain')
+    try:
+        soap_prompt = get_soap_prompt(diarized_transcript)
+        soap_response = gemini_client.models.generate_content(model=gemini_model_name, contents=soap_prompt)
+        soap_content = soap_response.text.replace('**', '').strip()
+        return jsonify({
+            "soapContent": soap_content
+        })
+    except Exception as e:
+        print(f"Error selama proses: {e}")
+        return jsonify({"error": f"Gagal memproses: {e}"}), 500
 
-# Hapus blok 'if __name__ == '__main__':' karena Render akan menjalankannya secara berbeda
+@app.route('/regenerate-diagnose-icd10', methods=['POST'])
+def regenerate_diagnose_icd():
+    if gemini_client is None or not ASSEMBLYAI_API_KEY:
+        return jsonify({"error": "API Key tidak berhasil dikonfigurasi di server."}), 500
+    
+    data = request.get_json()
+    if not data or 'soapContent' not in data:
+        return jsonify({"error": "Soap Content tidak ditemukan dalam request"}), 400
+    
+    soap_content = data['soapContent']
+    try:
+        diagnose_prompt = get_diagnose_icd(soap_content)
+        diagnose_response = gemini_client.models.generate_content(model=gemini_model_name, contents=diagnose_prompt)
+        diagnose_content = diagnose_response.text.replace('**', '').strip()
+        return jsonify({
+            "diagnoseICD": diagnose_content
+        })
+    except Exception as e:
+        print(f"Error selama proses: {e}")
+        return jsonify({"error": f"Gagal memproses: {e}"}), 500
+
