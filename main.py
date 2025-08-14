@@ -10,6 +10,13 @@ import assemblyai as aai
 
 app = Flask(__name__)
 
+allowed_origins = [
+    "https://soap-ai.solidtechno.com",
+    "http://localhost:5173"
+]
+
+CORS(app, resources={r"/*": {"origins": allowed_origins}})
+
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
